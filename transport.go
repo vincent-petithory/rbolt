@@ -14,8 +14,12 @@ type Ack struct {
 
 type NullTransport struct{}
 
-func (t NullTransport) Send(j *Journal) error             { return nil }
-func (t NullTransport) Recv(db *bolt.DB, ackC chan<- Ack) { close(ackC) }
+func (t NullTransport) Send(j *Journal) error { return nil }
+func (t NullTransport) Recv(db *bolt.DB, ackC chan<- Ack) {
+	if ackC != nil {
+		close(ackC)
+	}
+}
 
 type ChanTransport struct {
 	c chan *Journal

@@ -504,6 +504,66 @@ func TestLongRun(t *testing.T) {
 	}
 }
 
+func benchFunc(tb testing.TB, withRTx bool) {
+	db := NewDB(tb)
+	defer db.Close()
+
+	transport := rbolt.NullTransport{}
+	go transport.Recv(nil, nil)
+
+	if err := db.Update(func(tx *bolt.Tx) error {
+		var writeKey func([]byte, []byte) error
+		if withRTx {
+			rtx := rbolt.RTx(tx, transport)
+			tx.OnCommit(func() {
+				if err := rtx.Flush(); err != nil {
+					tb.Error(err)
+				}
+			})
+			b, err := rtx.CreateBucket([]byte("quiver"))
+			if err != nil {
+				return err
+			}
+			writeKey = b.Put
+		} else {
+			b, err := tx.CreateBucket([]byte("quiver"))
+			if err != nil {
+				return err
+			}
+			writeKey = b.Put
+		}
+
+		for i := 0; i < 1000; i++ {
+			k := make([]byte, 16)
+			if _, err := rand.Read(k); err != nil {
+				return err
+			}
+			v := make([]byte, 64)
+			if _, err := rand.Read(v); err != nil {
+				return err
+			}
+			if err := writeKey(k, v); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		tb.Error(err)
+	}
+}
+
+func BenchmarkRTx(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		benchFunc(b, true)
+	}
+}
+
+func BenchmarkTx(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		benchFunc(b, false)
+	}
+}
+
 func TestTxBucket(t *testing.T) {
 	runSyncTest(t,
 		func(tx *bolt.Tx) error {
