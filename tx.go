@@ -6,8 +6,41 @@ import (
 	"github.com/boltdb/bolt"
 )
 
+type Op int
+
+func (op Op) String() string {
+	switch op {
+	case OpCreateBucket:
+		return "CreateBucket"
+	case OpCreateBucketIfNotExists:
+		return "CreateBucketIfNotExists"
+	case OpDelete:
+		return "Delete"
+	case OpDeleteBucket:
+		return "DeleteBucket"
+	case OpPut:
+		return "Put"
+	case OpBucketCursor:
+		return "BucketCursor"
+	case OpCursorDelete:
+		return "CursorDelete"
+	case OpCursorFirst:
+		return "CursorFirst"
+	case OpCursorLast:
+		return "CursorLast"
+	case OpCursorNext:
+		return "CursorNext"
+	case OpCursorPrev:
+		return "CursorPrev"
+	case OpCursorSeek:
+		return "CursorSeek"
+	default:
+		return ""
+	}
+}
+
 const (
-	OpCreateBucket = iota + 1
+	OpCreateBucket Op = iota + 1
 	OpCreateBucketIfNotExists
 	OpDelete
 	OpDeleteBucket
@@ -128,29 +161,28 @@ func (j *Journal) cursor(tx *bolt.Tx, p [][]byte, id int) *bolt.Cursor {
 }
 
 type W struct {
-	Op       int
+	Op       Op
 	Path     [][]byte
 	CursorID int
 	Value    []byte
 }
 
-func RTx(tx *bolt.Tx, t Transport) *Tx {
-	return &Tx{Tx: tx, Transport: t, j: &Journal{ID: tx.ID()}}
+func RTx(tx *bolt.Tx) *Tx {
+	return &Tx{Tx: tx, j: &Journal{ID: tx.ID()}}
 }
 
 type Tx struct {
 	*bolt.Tx
-	Transport Transport
 
 	j *Journal
 }
 
-func (tx *Tx) log(op int, path [][]byte, v []byte, cursorID int) {
-	tx.j.Ws = append(tx.j.Ws, W{Op: op, Path: path, Value: v, CursorID: cursorID})
+func (tx *Tx) Journal() *Journal {
+	return tx.j
 }
 
-func (tx *Tx) Flush() error {
-	return tx.Transport.Send(tx.j)
+func (tx *Tx) log(op Op, path [][]byte, v []byte, cursorID int) {
+	tx.j.Ws = append(tx.j.Ws, W{Op: op, Path: path, Value: v, CursorID: cursorID})
 }
 
 func (tx *Tx) Bucket(name []byte) *Bucket {
@@ -207,12 +239,6 @@ type Bucket struct {
 	tx      *Tx
 	cursors []*bolt.Cursor
 }
-
-//type cursorOps struct {
-//	C    *bolt.Cursor
-//	Op   int
-//	K, V []byte
-//}
 
 func (b *Bucket) Bucket(name []byte) *Bucket {
 	sb := b.b.Bucket(name)

@@ -77,14 +77,14 @@ func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFu
 		tb.Error("dbs differ at startup, whoops")
 	}
 
-	if err := dbs.Update(func(txo *bolt.Tx) error {
-		tx := rbolt.RTx(txo, transport)
-		txo.OnCommit(func() {
-			if err := tx.Flush(); err != nil {
+	if err := dbs.Update(func(tx *bolt.Tx) error {
+		rtx := rbolt.RTx(tx)
+		tx.OnCommit(func() {
+			if err := transport.Send(rtx.Journal()); err != nil {
 				tb.Error(err)
 			}
 		})
-		return testFunc(tx)
+		return testFunc(rtx)
 	}); err != nil {
 		tb.Error(err)
 		return
@@ -323,9 +323,9 @@ func TestTxNoSyncIfErrs(t *testing.T) {
 	}
 	var errForce = errors.New("force")
 	if err := dbs.Update(func(tx *bolt.Tx) error {
-		rtx := rbolt.RTx(tx, transport)
+		rtx := rbolt.RTx(tx)
 		tx.OnCommit(func() {
-			if err := rtx.Flush(); err != nil {
+			if err := transport.Send(rtx.Journal()); err != nil {
 				t.Error(err)
 			}
 		})
@@ -464,15 +464,15 @@ func TestLongRun(t *testing.T) {
 	go transport.Recv(dbt.DB, ackC)
 
 	err := quick.Check(func(ops []Op) bool {
-		if err := dbs.Update(func(txo *bolt.Tx) error {
-			tx := rbolt.RTx(txo, transport)
-			txo.OnCommit(func() {
-				if err := tx.Flush(); err != nil {
+		if err := dbs.Update(func(tx *bolt.Tx) error {
+			rtx := rbolt.RTx(tx)
+			tx.OnCommit(func() {
+				if err := transport.Send(rtx.Journal()); err != nil {
 					t.Error(err)
 				}
 			})
 			for _, op := range ops {
-				if err := doOp(tx, op); err != nil {
+				if err := doOp(rtx, op); err != nil {
 					return err
 				}
 			}
@@ -508,18 +508,10 @@ func benchFunc(tb testing.TB, withRTx bool) {
 	db := NewDB(tb)
 	defer db.Close()
 
-	transport := rbolt.NullTransport{}
-	go transport.Recv(nil, nil)
-
 	if err := db.Update(func(tx *bolt.Tx) error {
 		var writeKey func([]byte, []byte) error
 		if withRTx {
-			rtx := rbolt.RTx(tx, transport)
-			tx.OnCommit(func() {
-				if err := rtx.Flush(); err != nil {
-					tb.Error(err)
-				}
-			})
+			rtx := rbolt.RTx(tx)
 			b, err := rtx.CreateBucket([]byte("quiver"))
 			if err != nil {
 				return err
