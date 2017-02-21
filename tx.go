@@ -198,6 +198,9 @@ func (tx *Tx) log(op Op, path [][]byte, v []byte, cursorID int) {
 
 func (tx *Tx) Bucket(name []byte) *Bucket {
 	b := tx.Tx.Bucket(name)
+	if b == nil {
+		return nil
+	}
 	if !tx.writable {
 		return &Bucket{b: b, tx: tx}
 	}
@@ -270,6 +273,9 @@ type Bucket struct {
 
 func (b *Bucket) Bucket(name []byte) *Bucket {
 	sb := b.b.Bucket(name)
+	if sb == nil {
+		return nil
+	}
 	if !b.tx.writable {
 		return &Bucket{b: sb, tx: b.tx}
 	}
