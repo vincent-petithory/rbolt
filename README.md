@@ -71,3 +71,11 @@ There is a cost in memory since key/values written in the journal are copies (by
 ```
 
 and that cost will depend on the size of the keys/values of your database.
+
+Status
+------
+
+The package is still very young, so the API may still change in minor ways. `Transport` implementations are lacking.
+However things are working and only ask for more thorough use to ensure it's solid.
+
+People who want to test it and provide feedback are very welcome!
