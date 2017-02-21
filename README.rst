@@ -31,11 +31,15 @@ Example with the `ChanTransport`, for replication in the same go program::
   ackC := make(chan rbolt.Ack)
   transport := rbolt.NewChanTransport()
   go transport.Recv(dbt.DB, ackC)
-  // Generates monotonic Log Sequence Numbers
-  var lsn rbolt.LSN
+  // naive lsn generator.
+  var lsn int
+  nextLSN := func() int {
+      lsn++
+      return lsn
+  }
 
   go func() {
-      err := rbolt.DBUpdate(db, transport, lsn.Next, func(tx *rbolt.Tx) error {
+      err := rbolt.DBUpdate(db, transport, nextLSN, func(tx *rbolt.Tx) error {
           // ... use rtx
       })
       ...
