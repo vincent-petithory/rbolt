@@ -1,7 +1,7 @@
 RBolt
 =====
 
-RBolt is a package for replicating `boltdb <https://github.com/boltdb/bolt>`_ databases.
+RBolt is a package for replicating [boltdb](https://github.com/boltdb/bolt>) databases.
 
 Journal
 -------
@@ -24,7 +24,7 @@ To use it, call the `rbolt.RTx()` func in a writeable transaction:
 Transport
 ---------
 
-RBolt also provides a `Transport` interface and several implementations to forward the journal to another DB. The `DBUpdate()` function calls `boltdb.DB.Update()`, 
+RBolt also provides a `Transport` interface and several implementations to forward the journal to another DB. The `DBUpdate()` function calls `boltdb.DB.Update()`, creates a journal update record, and either a commit or rollback journal record, and sends those two in the transport.
 It is optional, use whatever system suits you to play the journal from `rbolt.RTx` elsewhere.
 Example with the `ChanTransport`, for replication in the same go program:
 
@@ -43,7 +43,7 @@ Example with the `ChanTransport`, for replication in the same go program:
 
   go func() {
       err := rbolt.DBUpdate(db, transport, nextLSN, func(tx *rbolt.Tx) error {
-          // ... use rtx
+          // ... use tx
       })
       ...
   }()
@@ -56,8 +56,7 @@ Example with the `ChanTransport`, for replication in the same go program:
           log.Println(ack.Err)
       }
   }
-
-  ...
+  
 ```
 
 Performance
