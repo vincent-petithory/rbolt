@@ -55,11 +55,21 @@ const (
 )
 
 type Journal struct {
-	ID int
-	Ws []W
+	LSN  int
+	TxID int
+	Ws   []W
+	Type JournalType
 
 	cursors map[string][]*bolt.Cursor
 }
+
+type JournalType int
+
+const (
+	JournalTypeUpdate JournalType = iota + 1
+	JournalTypeCommit
+	JournalTypeRollback
+)
 
 func (j *Journal) Play(tx *bolt.Tx) error {
 	j.cursors = make(map[string][]*bolt.Cursor)
@@ -168,7 +178,7 @@ type W struct {
 }
 
 func RTx(tx *bolt.Tx) *Tx {
-	return &Tx{Tx: tx, j: &Journal{ID: tx.ID()}}
+	return &Tx{Tx: tx, j: &Journal{TxID: tx.ID(), Type: JournalTypeUpdate}}
 }
 
 type Tx struct {

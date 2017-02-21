@@ -22,23 +22,34 @@ To use it, call the `rbolt.RTx()` func in a writeable transaction::
 Transport
 ---------
 
-RBolt also provides a `Transport` interface and several implementations to forward the journal to another DB. It is optional, use whatever system suits you to play the journal elsewhere.
+RBolt also provides a `Transport` interface and several implementations to forward the journal to another DB. The `DBUpdate()` function calls `boltdb.DB.Update()`, 
+It is optional, use whatever system suits you to play the journal from `rbolt.RTx` elsewhere.
 Example with the `ChanTransport`, for replication in the same go program::
 
-
-  ackC := make(chan rbolt.Ack, 1)
+  // db is the "master" db.
+  // dbt is the target bolt.DB to synchronize
+  ackC := make(chan rbolt.Ack)
   transport := rbolt.NewChanTransport()
   go transport.Recv(dbt.DB, ackC)
+  // Generates monotonic Log Sequence Numbers
+  var lsn rbolt.LSN
 
-  err := db.Update(func(tx *bolt.Tx) error {
-      rtx := rbolt.RTx(tx)
-      tx.OnCommit(func() {
-          if err := transport.Send(rtx.Journal()); err != nil {
-              tb.Error(err)
-          }
+  go func() {
+      err := rbolt.DBUpdate(db, transport, lsn.Next, func(tx *rbolt.Tx) error {
+          // ... use rtx
       })
-      // ... use rtx
-  })
+      ...
+  }()
+
+  // Listen for the receiving side of the Transport to respond.
+  // 2 Acks are sent for a transaction.
+  // 1st is the update journal record, 2nd is either a commit or rollback record.
+  for ack := range ackC {
+      if ack.Err != nil {
+          log.Println(ack.Err)
+      }
+  }
+
 
   ...
 
