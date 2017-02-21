@@ -69,7 +69,7 @@ func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFu
 	defer dbt.Close()
 
 	ackC := make(chan rbolt.Ack)
-	transport := rbolt.NewChanTransport()
+	transport := rbolt.NewChanTransport(0)
 	go transport.Recv(dbt.DB, ackC)
 
 	if err := dbs.Update(initFunc); err != nil {
@@ -296,7 +296,7 @@ meow2/submeow2/sk2 => sv2
 }
 
 func TestChanTransportTxNoSyncIfErrs(t *testing.T) {
-	testTransportTxNoSyncIfErrs(t, rbolt.NewChanTransport())
+	testTransportTxNoSyncIfErrs(t, rbolt.NewChanTransport(0))
 }
 
 // TODO migrate this to a generic test for Transports.
@@ -479,7 +479,7 @@ func TestLongRun(t *testing.T) {
 	}
 
 	ackC := make(chan rbolt.Ack)
-	transport := rbolt.NewChanTransport()
+	transport := rbolt.NewChanTransport(0)
 	go transport.Recv(dbt.DB, ackC)
 
 	lsn := LSN{}
@@ -593,7 +593,7 @@ func BenchmarkTx(b *testing.B) {
 }
 
 func TestChanTransportTxSequence(t *testing.T) {
-	testTransportTxSequence(t, rbolt.NewChanTransport())
+	testTransportTxSequence(t, rbolt.NewChanTransport(0))
 }
 
 func testTransportTxSequence(tb testing.TB, transport rbolt.Transport) {

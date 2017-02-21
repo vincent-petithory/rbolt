@@ -28,8 +28,8 @@ type ChanTransport struct {
 	journals map[int]*Journal
 }
 
-func NewChanTransport() *ChanTransport {
-	return &ChanTransport{c: make(chan *Journal), journals: make(map[int]*Journal)}
+func NewChanTransport(bufsize int) *ChanTransport {
+	return &ChanTransport{c: make(chan *Journal, bufsize), journals: make(map[int]*Journal)}
 }
 
 func (t *ChanTransport) Send(j *Journal, lsn int) {
