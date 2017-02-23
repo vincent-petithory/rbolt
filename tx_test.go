@@ -2,14 +2,11 @@ package rbolt_test
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"testing/quick"
 
@@ -50,27 +47,11 @@ func NewDB(tb testing.TB) *DB {
 	return &DB{DB: db}
 }
 
-type LSN struct {
-	l   sync.Mutex
-	lsn int
-}
-
-func (l *LSN) Next() int {
-	l.l.Lock()
-	defer l.l.Unlock()
-	l.lsn++
-	return l.lsn
-}
-
 func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFunc func(*rbolt.Tx) error) {
 	dbs := NewDB(tb)
 	defer dbs.Close()
 	dbt := NewDB(tb)
 	defer dbt.Close()
-
-	ackC := make(chan rbolt.Ack)
-	transport := rbolt.NewChanTransport(0)
-	go transport.Recv(dbt.DB, ackC)
 
 	if err := dbs.Update(initFunc); err != nil {
 		tb.Error(err)
@@ -80,7 +61,7 @@ func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFu
 		tb.Error(err)
 		return
 	}
-	lsn := LSN{}
+	lsn := new(rbolt.MonotonicLSN)
 
 	s, ok, err := testDBEquals(dbs.DB, dbt.DB)
 	if err != nil {
@@ -91,19 +72,15 @@ func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFu
 		tb.Error("dbs differ at startup, whoops")
 	}
 
-	go func() {
-		if err := rbolt.Update(dbs.DB, transport, lsn.Next, testFunc); err != nil {
-			tb.Error(err)
-		}
-	}()
+	jbuf := rbolt.NewJournalBuffer(dbt.DB)
+	transport := &rbolt.LocalTransport{JournalBuffer: jbuf}
+	if err := rbolt.Update(dbs.DB, transport, lsn, testFunc); err != nil {
+		tb.Error(err)
+	}
 
-	// Wait for the Tx to sync (1 ack for journal, 1 for commit)
-	for i := 0; i < 2; i++ {
-		ack := <-ackC
-		if ack.Err != nil {
-			tb.Error(ack.Err)
-			return
-		}
+	if err := jbuf.Flush(); err != nil {
+		tb.Error(err)
+		return
 	}
 
 	s, ok, err = testDBEquals(dbs.DB, dbt.DB)
@@ -295,87 +272,6 @@ meow2/submeow2/sk2 => sv2
 	)
 }
 
-func TestChanTransportTxNoSyncIfErrs(t *testing.T) {
-	testTransportTxNoSyncIfErrs(t, rbolt.NewChanTransport(0))
-}
-
-// TODO migrate this to a generic test for Transports.
-func testTransportTxNoSyncIfErrs(tb testing.TB, transport rbolt.Transport) {
-	dbs := NewDB(tb)
-	defer dbs.Close()
-	dbt := NewDB(tb)
-	defer dbt.Close()
-
-	ackC := make(chan rbolt.Ack)
-	go transport.Recv(dbt.DB, ackC)
-
-	var lsn LSN
-
-	initFunc := func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucket([]byte("bucket"))
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte("k"), []byte("v"))
-	}
-
-	if err := dbs.Update(initFunc); err != nil {
-		tb.Error(err)
-		return
-	}
-	if err := dbt.Update(initFunc); err != nil {
-		tb.Error(err)
-		return
-	}
-
-	_, ok, err := testDBEquals(dbs.DB, dbt.DB)
-	if err != nil {
-		tb.Error(err)
-		return
-	}
-	if !ok {
-		tb.Error("dbs differ at startup, whoops")
-	}
-	var errForce = errors.New("force")
-	go func() {
-		if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
-			b := tx.Bucket([]byte("bucket"))
-			if err := b.Delete([]byte("k")); err != nil {
-				return err
-			}
-			return errForce
-		}); err != nil && err != errForce {
-			tb.Errorf("unexpected error %v", err)
-		}
-	}()
-
-	ack1 := <-ackC
-	if ack1.Err != nil {
-		tb.Error(ack1.Err)
-	}
-	if ack1.Journal.Type != rbolt.JournalTypeUpdate {
-		tb.Errorf("expected journal type %d, got %d", rbolt.JournalTypeUpdate, ack1.Journal.Type)
-	}
-	ack2 := <-ackC
-	if ack2.Err != nil {
-		tb.Error(ack2.Err)
-	}
-	if ack2.Journal.Type != rbolt.JournalTypeRollback {
-		tb.Errorf("expected journal type %d, got %d", rbolt.JournalTypeRollback, ack2.Journal.Type)
-	}
-
-	if err := dbt.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte("bucket"))
-		if v := b.Get([]byte("k")); v == nil {
-			tb.Error("unexpected db sync")
-		}
-		return nil
-	}); err != nil {
-		tb.Error(err)
-		return
-	}
-}
-
 func TestLongRun(t *testing.T) {
 	dbs := NewDB(t)
 	defer dbs.Close()
@@ -478,33 +374,25 @@ func TestLongRun(t *testing.T) {
 		return nil
 	}
 
-	ackC := make(chan rbolt.Ack)
-	transport := rbolt.NewChanTransport(0)
-	go transport.Recv(dbt.DB, ackC)
-
-	lsn := LSN{}
+	jbuf := rbolt.NewJournalBuffer(dbt.DB)
+	transport := &rbolt.LocalTransport{JournalBuffer: jbuf}
+	lsn := new(rbolt.MonotonicLSN)
 
 	err := quick.Check(func(ops []Op) bool {
-		go func() {
-			if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
-				for _, op := range ops {
-					if err := doOp(tx, op); err != nil {
-						return err
-					}
+		if err := rbolt.Update(dbs.DB, transport, lsn, func(tx *rbolt.Tx) error {
+			for _, op := range ops {
+				if err := doOp(tx, op); err != nil {
+					return err
 				}
-				return nil
-			}); err != nil {
-				t.Error(err)
 			}
-		}()
+			return nil
+		}); err != nil {
+			t.Error(err)
+		}
 
-		// Wait for the Tx to sync
-		for i := 0; i < 2; i++ {
-			ack := <-ackC
-			if ack.Err != nil {
-				t.Error(ack.Err)
-				return false
-			}
+		if err := jbuf.Flush(); err != nil {
+			t.Error(err)
+			return false
 		}
 
 		_, ok, err := testDBEquals(dbs.DB, dbt.DB)
@@ -526,10 +414,12 @@ func benchFunc(tb testing.TB, withRTx bool) {
 	db := NewDB(tb)
 	defer db.Close()
 
-	lsn := LSN{}
+	jbuf := rbolt.NewJournalBuffer(db.DB)
+	transport := &rbolt.LocalTransport{JournalBuffer: jbuf}
+	lsn := new(rbolt.MonotonicLSN)
 
 	if withRTx {
-		if err := rbolt.Update(db.DB, rbolt.NullTransport{}, lsn.Next, func(tx *rbolt.Tx) error {
+		if err := rbolt.Update(db.DB, transport, lsn, func(tx *rbolt.Tx) error {
 			b, err := tx.CreateBucket([]byte("quiver"))
 			if err != nil {
 				return err
@@ -589,83 +479,6 @@ func BenchmarkRTx(b *testing.B) {
 func BenchmarkTx(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		benchFunc(b, false)
-	}
-}
-
-func TestChanTransportTxSequence(t *testing.T) {
-	testTransportTxSequence(t, rbolt.NewChanTransport(0))
-}
-
-func testTransportTxSequence(tb testing.TB, transport rbolt.Transport) {
-	dbs := NewDB(tb)
-	defer dbs.Close()
-	dbt := NewDB(tb)
-	defer dbt.Close()
-
-	ackC := make(chan rbolt.Ack)
-	go transport.Recv(dbt.DB, ackC)
-
-	if err := dbs.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte("incs"))
-		return err
-	}); err != nil {
-		tb.Error(err)
-		return
-	}
-	if err := dbt.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucket([]byte("incs"))
-		return err
-	}); err != nil {
-		tb.Error(err)
-		return
-	}
-
-	const N = 10
-
-	var (
-		txIDs []int
-		lsn   LSN
-	)
-
-	for i := 1; i <= N; i++ {
-		inc := i
-		go func() {
-			if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
-				txIDs = append(txIDs, tx.ID())
-				b := tx.Bucket([]byte("incs"))
-				k := []byte(fmt.Sprintf("k%d", inc))
-				v := []byte(fmt.Sprintf("v%d", inc))
-				return b.Put(k, v)
-			}); err != nil {
-				tb.Error(err)
-				return
-			}
-		}()
-	}
-
-	var atxIDs []int
-	for i := 0; i < N*2; i++ {
-		ack := <-ackC
-		if ack.Journal.Type == rbolt.JournalTypeCommit {
-			atxIDs = append(atxIDs, ack.Journal.TxID)
-		}
-		if ack.Err != nil {
-			tb.Error(ack.Err)
-			return
-		}
-
-	}
-	if !reflect.DeepEqual(atxIDs, txIDs) {
-		tb.Errorf("expected transaction IDs:\n%v\ngot:\n%v", txIDs, atxIDs)
-	}
-	// Check dbs equal at the end
-	_, ok, err := testDBEquals(dbs.DB, dbt.DB)
-	if err != nil {
-		tb.Error(err)
-		return
-	}
-	if !ok {
-		tb.Error("dbs differ")
 	}
 }
 
