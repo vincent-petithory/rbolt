@@ -62,7 +62,7 @@ func (t *ChanTransport) Recv(db *bolt.DB, ackC chan<- Ack) {
 	}
 }
 
-func DBUpdate(db *bolt.DB, transport Transport, lsn func() int, fn func(tx *Tx) error) error {
+func Update(db *bolt.DB, transport Transport, lsn func() int, fn func(tx *Tx) error) error {
 	var txID int
 	if err := db.Update(func(tx *bolt.Tx) (err error) {
 		rtx := RTx(tx)

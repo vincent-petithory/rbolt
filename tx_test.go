@@ -92,7 +92,7 @@ func runSyncTest(tb testing.TB, initFunc func(*bolt.Tx) error, es string, testFu
 	}
 
 	go func() {
-		if err := rbolt.DBUpdate(dbs.DB, transport, lsn.Next, testFunc); err != nil {
+		if err := rbolt.Update(dbs.DB, transport, lsn.Next, testFunc); err != nil {
 			tb.Error(err)
 		}
 	}()
@@ -338,7 +338,7 @@ func testTransportTxNoSyncIfErrs(tb testing.TB, transport rbolt.Transport) {
 	}
 	var errForce = errors.New("force")
 	go func() {
-		if err := rbolt.DBUpdate(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
+		if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
 			b := tx.Bucket([]byte("bucket"))
 			if err := b.Delete([]byte("k")); err != nil {
 				return err
@@ -486,7 +486,7 @@ func TestLongRun(t *testing.T) {
 
 	err := quick.Check(func(ops []Op) bool {
 		go func() {
-			if err := rbolt.DBUpdate(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
+			if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
 				for _, op := range ops {
 					if err := doOp(tx, op); err != nil {
 						return err
@@ -529,7 +529,7 @@ func benchFunc(tb testing.TB, withRTx bool) {
 	lsn := LSN{}
 
 	if withRTx {
-		if err := rbolt.DBUpdate(db.DB, rbolt.NullTransport{}, lsn.Next, func(tx *rbolt.Tx) error {
+		if err := rbolt.Update(db.DB, rbolt.NullTransport{}, lsn.Next, func(tx *rbolt.Tx) error {
 			b, err := tx.CreateBucket([]byte("quiver"))
 			if err != nil {
 				return err
@@ -630,7 +630,7 @@ func testTransportTxSequence(tb testing.TB, transport rbolt.Transport) {
 	for i := 1; i <= N; i++ {
 		inc := i
 		go func() {
-			if err := rbolt.DBUpdate(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
+			if err := rbolt.Update(dbs.DB, transport, lsn.Next, func(tx *rbolt.Tx) error {
 				txIDs = append(txIDs, tx.ID())
 				b := tx.Bucket([]byte("incs"))
 				k := []byte(fmt.Sprintf("k%d", inc))
