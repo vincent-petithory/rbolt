@@ -414,8 +414,7 @@ func benchFunc(tb testing.TB, withRTx bool) {
 	db := NewDB(tb)
 	defer db.Close()
 
-	jbuf := rbolt.NewJournalBuffer(db.DB)
-	transport := &rbolt.LocalTransport{JournalBuffer: jbuf}
+	var transport rbolt.NullTransport
 	lsn := new(rbolt.MonotonicLSN)
 
 	if withRTx {

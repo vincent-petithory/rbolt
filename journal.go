@@ -288,6 +288,10 @@ type Transport interface {
 	Send(*Journal, int)
 }
 
+type NullTransport struct{}
+
+func (t NullTransport) Send(j *Journal, lsn int) { j.LSN = lsn }
+
 type LocalTransport struct {
 	JournalBuffer *JournalBuffer
 }

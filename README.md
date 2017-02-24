@@ -58,8 +58,8 @@ The overhead is when recording what happens during a writeable transaction. Read
 There is a cost in memory since key/values written in the journal are copies (byte-slices are valid only during the transaction):
 
 ```
-  BenchmarkRTx-8   	    2000	   6208192 ns/op	 1256913 B/op	   19532 allocs/op
-  BenchmarkTx-8    	    2000	   5982453 ns/op	  997624 B/op	   16509 allocs/op
+  BenchmarkRTx-8   	    5000	   4024116 ns/op	 1256659 B/op	   19527 allocs/op
+  BenchmarkTx-8    	    5000	   3907194 ns/op	  997511 B/op	   16506 allocs/op
 ```
 
 and that cost will depend on the size of the keys/values of your database.
