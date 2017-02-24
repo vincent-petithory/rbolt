@@ -245,7 +245,7 @@ func (jb *JournalBuffer) Flush() error {
 	return nil
 }
 
-func (jb *JournalBuffer) WriteJournal(j *Journal) error {
+func (jb *JournalBuffer) WriteJournal(j *Journal) {
 	jb.l.Lock()
 	defer jb.l.Unlock()
 	switch j.Type {
@@ -254,7 +254,6 @@ func (jb *JournalBuffer) WriteJournal(j *Journal) error {
 	case JournalTypeCommit, JournalTypeRollback:
 		jb.journals = append(jb.journals, j)
 	}
-	return nil
 }
 
 func Update(db *bolt.DB, transport Transport, lsn LSNGenerator, fn func(tx *Tx) error) error {
@@ -266,39 +265,52 @@ func Update(db *bolt.DB, transport Transport, lsn LSNGenerator, fn func(tx *Tx) 
 			commitJournal := &Journal{
 				TxID: txID,
 				Type: JournalTypeCommit,
+				LSN:  lsn.NextLSN(),
 			}
-			transport.Send(commitJournal, lsn.NextLSN())
+			transport.Send(commitJournal)
 		})
 		defer func() {
-			transport.Send(rtx.Journal(), lsn.NextLSN())
+			j := rtx.Journal()
+			j.LSN = lsn.NextLSN()
+			transport.Send(j)
 		}()
 		return fn(rtx)
 	}); err != nil {
 		rollbackJournal := &Journal{
 			TxID: txID,
 			Type: JournalTypeRollback,
+			LSN:  lsn.NextLSN(),
 		}
-		transport.Send(rollbackJournal, lsn.NextLSN())
+		transport.Send(rollbackJournal)
 		return err
 	}
 	return nil
 }
 
 type Transport interface {
-	Send(*Journal, int)
+	Send(*Journal)
 }
 
 type NullTransport struct{}
 
-func (t NullTransport) Send(j *Journal, lsn int) { j.LSN = lsn }
+func (t NullTransport) Send(_ *Journal) {}
 
 type LocalTransport struct {
 	JournalBuffer *JournalBuffer
 }
 
-func (t *LocalTransport) Send(j *Journal, lsn int) {
-	j.LSN = lsn
+func (t *LocalTransport) Send(j *Journal) {
 	t.JournalBuffer.WriteJournal(j)
+}
+
+type MultiTransport struct {
+	transports []Transport
+}
+
+func (mt *MultiTransport) Send(j *Journal) {
+	for _, t := range mt.transports {
+		t.Send(j)
+	}
 }
 
 type LSNGenerator interface {
